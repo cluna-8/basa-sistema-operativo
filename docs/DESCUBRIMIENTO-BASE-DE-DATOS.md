@@ -1,272 +1,484 @@
-# BASA Argentina — Sesión de Descubrimiento Técnico
-## Conectar el Sistema Operativo a la Base de Datos Existente
+# BASA Argentina — Cuestionario de Descubrimiento Técnico
+## Máximo Nivel de Detalle para Integración con Base de Datos Existente
 
 **Fecha:** 2026-06-26  
-**Contexto:** BASA tiene una base de datos operativa con millones de registros y un ABM ya conectado. Antes de escribir una sola línea más de código, necesitamos entender qué tienen.
+**Propósito:** Antes de escribir una sola línea de integración, necesitamos respuesta a CADA UNA de estas preguntas. Una respuesta faltante puede costarnos semanas de trabajo en la dirección equivocada.
+
+**Formato de respuesta:** Completar este documento y devolvérnoslo, o enviarlo por reunión técnica con el DBA y el desarrollador del ABM presente.
 
 ---
 
-## Objetivo de la sesión
+## BLOQUE 1 — Infraestructura de base de datos
 
-Salir con todo lo necesario para reemplazar la simulación actual por conexiones reales a la base de datos de BASA — sin romper lo que ya funciona.
+### 1.1 Motor y versión
 
----
+- ¿Qué motor de base de datos usan? (marcar uno)
+  - [ ] Microsoft SQL Server → ¿Versión exacta? (ej: SQL Server 2019, 2022)
+  - [ ] Oracle Database → ¿Versión?
+  - [ ] PostgreSQL → ¿Versión?
+  - [ ] MySQL / MariaDB → ¿Versión?
+  - [ ] Otro: _______________
 
-## 1. Acceso a la base de datos
+- ¿El motor corre en Windows o Linux?
+- ¿Es una instancia dedicada o compartida con otros sistemas?
+- ¿Está en la red interna de BASA, en un datacenter propio, o en la nube? (AWS, Azure, GCP, otro)
 
-### Preguntas
+### 1.2 Ambientes disponibles
 
-- ¿Motor de base de datos? (SQL Server, Oracle, PostgreSQL, MySQL, otro)
-- ¿Versión exacta?
-- ¿Hay un ambiente de **desarrollo/testing** al que podamos conectarnos sin riesgo?
-- ¿O solo hay producción? (en ese caso, necesitamos un dump de schema + datos de prueba)
-- ¿La conexión es directa o requiere VPN?
-- Si requiere VPN: ¿qué cliente VPN usan? ¿Proveen credenciales?
+- ¿Tienen ambiente de **desarrollo/testing** separado de producción?
+  - [ ] Sí → ¿Con datos reales o datos de prueba?
+  - [ ] No → ¿Pueden crear uno? ¿O trabajamos sobre producción con acceso de solo lectura?
 
-### Lo que necesitamos para conectarnos
+- ¿El ambiente de dev tiene los mismos datos que producción? (o es una copia parcial)
 
+- ¿Con qué frecuencia se sincroniza dev con producción?
+
+### 1.3 Conectividad
+
+- ¿La base de datos es accesible desde fuera de la red de BASA?
+  - [ ] Sí, directo (IP pública o dominio)
+  - [ ] No, requiere VPN
+  - [ ] No, requiere estar en la red interna de BASA
+
+- Si requiere VPN:
+  - ¿Qué cliente VPN usan? (Cisco AnyConnect, OpenVPN, WireGuard, otro)
+  - ¿Tienen licencias/cuentas disponibles para darnos?
+  - ¿Hay que generar certificados o es usuario/contraseña?
+
+- Puerto de la base de datos: ______ (default: SQL Server=1433, PostgreSQL=5432, Oracle=1521)
+
+- ¿Hay firewall que limite qué IPs pueden conectarse? Si es así, darnos una IP fija o rango para whitelist.
+
+### 1.4 Credenciales de acceso
+
+Necesitamos **dos usuarios** separados:
+
+**Usuario de solo lectura** (para el agente IA y para la fase de exploración):
 ```
-Host:     _________________________
-Puerto:   _________________________
-Base:     _________________________
-Usuario:  _________________________ (solo lectura primero)
-Password: _________________________
-Schema:   _________________________ (ej: dbo, public, BASA_PROD)
-VPN:      Sí / No
+Host:     _______________________________
+Puerto:   _______________________________
+Base:     _______________________________
+Usuario:  _______________________________
+Password: _______________________________
+Schema:   _______________________________
 ```
 
----
-
-## 2. Schema existente
-
-### Lo que necesitamos
-
-La forma más rápida es que nos den:
-
-```sql
--- En SQL Server:
-SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE
-FROM INFORMATION_SCHEMA.COLUMNS
-ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION
-
--- En Oracle:
-SELECT OWNER, TABLE_NAME, COLUMN_NAME, DATA_TYPE, NULLABLE
-FROM ALL_TAB_COLUMNS
-WHERE OWNER NOT IN ('SYS','SYSTEM')
-ORDER BY OWNER, TABLE_NAME, COLUMN_ID
-
--- En PostgreSQL:
-\d+ (en psql) o SELECT * FROM information_schema.columns
+**Usuario de aplicación** (para los UC operativos — escribe datos):
 ```
-
-**Alternativa:** exportar el ERD desde SQL Server Management Studio / DBeaver / cualquier herramienta que usen. Un PDF o imagen del diagrama ya sirve para arrancar.
-
-### Preguntas sobre el schema
-
-- ¿Cuántas tablas tiene la base aproximadamente?
-- ¿Hay un schema o namespace específico para los datos operativos? (ej: `dbo`, `operaciones`, etc.)
-- ¿Hay stored procedures que el ABM llama en vez de queries directas?
-- ¿Hay vistas que abstraen lógica de negocio?
-- ¿Hay triggers en las tablas principales?
-
----
-
-## 3. El ABM existente
-
-El ABM ya está conectado a la base. Necesitamos entender exactamente cómo.
-
-### Preguntas
-
-- ¿En qué tecnología está construido el ABM? (VB.NET, C#, Delphi, web, otro)
-- ¿Se puede ver el código fuente? Especialmente las queries o el ORM que usa.
-- ¿El ABM escribe directo a tablas o llama stored procedures?
-- ¿El ABM tiene un archivo de configuración con el connection string? (para ver la estructura de conexión)
-
-### Lo que buscamos entender del ABM
-
-- ¿Cómo se llama la tabla de cajas? ¿y la de clientes? ¿y las posiciones?
-- ¿Qué campos usa para el código de caja/legajo? ¿Es un VARCHAR de 12? ¿Tiene prefijos?
-- ¿Cómo distingue una caja de un legajo? (¿campo tipo? ¿tabla separada?)
-- ¿Cómo registra la ubicación de una caja en el depósito?
-- ¿Cómo está modelado el "estado" de una caja? (¿campo texto? ¿tabla de estados? ¿número?)
-
----
-
-## 4. Entidades que más nos importan
-
-Para cada UC operativo, necesitamos saber cómo está modelado en su base:
-
-### UC1 — Ubicación de cajas en planta
-- Tabla donde se guarda la posición de una caja
-- ¿La posición es un código? ¿o una FK a otra tabla?
-- ¿Se registra el historial de posiciones o solo la actual?
-
-### UC2 — Consulta de cajas (pedidos)
-- Tabla de pedidos/requerimientos de cliente
-- Estados posibles de un pedido
-- ¿Cómo se registra el operario asignado?
-- ¿Existe concepto de "remito" en la base? ¿En qué tabla?
-
-### UC3 — Consulta de legajos
-- ¿Los legajos están en la misma tabla que las cajas o separados?
-- ¿Cómo se modela que un legajo no fue encontrado (splitting)?
-- ¿Existe el concepto de "pedido hijo" en la base actual?
-
-### UC4 — Retiros
-- Tabla donde se registra la entrada/retiro físico de cajas
-- ¿Existe tabla de "lecturas" o verificación de cantidades?
-- ¿Cómo se calcula y registra el flete?
-- ¿El email al cliente ya se envía desde algún módulo del sistema?
-
-### UC5 — Búsqueda / Investigación
-- ¿Existe en la base el concepto de "trámite administrativo"?
-- ¿Dónde se registran las horas del archivista?
-- ¿Cómo cambia el tipo de un pedido cuando se transforma?
-
-### UC6 — Consulta IA para jefes
-- Tablas de reportes o vistas que los jefes ya consultan
-- ¿Tienen algún sistema de reportes actual? (Crystal Reports, SSRS, Excel, otro)
-- ¿Qué preguntas hacen los jefes normalmente? (para entrenar al agente)
-
----
-
-## 5. Volumen y performance
-
-- ¿Cuántos registros tiene la tabla principal de cajas/elementos? (menciona millones)
-- ¿Cuántos clientes activos hay?
-- ¿Cuántos pedidos nuevos se generan por día aproximadamente?
-- ¿Hay índices en los campos de búsqueda (código de caja, código de cliente)?
-- ¿La base tiene réplica de lectura? (útil para el agente IA — no tocar producción)
-
----
-
-## 6. Restricciones importantes
-
-### Preguntas de seguridad y compliance
-
-- ¿Hay datos sensibles (DNI, CUIL, datos médicos, datos judiciales)?
-- ¿La base está en la red interna de BASA o en la nube?
-- ¿Quién es el DBA o responsable de la base?
-- ¿Hay política de backups? ¿Con qué frecuencia?
-- ¿Se puede hacer SELECT libre o requiere aprobación por tabla?
-
-### Restricciones de escritura
-
-Para los UC operativos, necesitamos escribir. ¿Es posible crear:
-- Un usuario de aplicación con permisos de SELECT + INSERT + UPDATE (sin DELETE)
-- Un schema separado para las tablas nuevas que necesitemos agregar
-- Acceso de solo lectura para el agente de IA (UC6)
-
----
-
-## 7. Proceso sugerido para la integración
-
-Una vez que tengamos el schema, seguimos este orden:
-
-```
-Semana 1: Acceso + Lectura
-  ├── Obtener conexión de solo lectura al ambiente de dev
-  ├── Explorar schema completo con queries de introspección
-  ├── Mapear las tablas existentes a nuestro modelo de datos
-  └── Identificar gaps (qué tablas faltan, qué campos faltan)
-
-Semana 2: Adaptar el backend
-  ├── Cambiar los modelos SQLAlchemy para apuntar a las tablas reales
-  ├── Adaptar las queries de los 5 nodos del grafo LangGraph
-  ├── Identificar stored procedures que debamos respetar
-  └── Pruebas de lectura contra datos reales
-
-Semana 3: Escritura controlada
-  ├── Obtener usuario con permisos de escritura en dev
-  ├── Ejecutar UC1 real (el más simple: ubicar una caja)
-  ├── Validar que los datos quedan bien en la base
-  └── Iterar por UC en orden de complejidad: UC2 → UC4 → UC3 → UC5
-
-Semana 4: UC6 IA
-  ├── Configurar ANTHROPIC_API_KEY
-  ├── Darle al agente acceso de solo lectura a la base real
-  ├── Probar preguntas con datos reales
-  └── Ajustar el prompt del sistema según lo que encuentre
+Host:     _______________________________
+Puerto:   _______________________________
+Base:     _______________________________
+Usuario:  _______________________________
+Password: _______________________________
+Permisos: SELECT, INSERT, UPDATE (sin DELETE ni DROP)
+Schema:   _______________________________
 ```
 
 ---
 
-## 8. Script de diagnóstico rápido
+## BLOQUE 2 — Schema y modelo de datos
 
-Cuando tengamos acceso, ejecutar esto para entender la base en minutos:
+### 2.1 Panorama general
 
-```sql
--- 1. Ver todas las tablas con cantidad de filas (SQL Server)
-SELECT 
-    t.TABLE_SCHEMA,
-    t.TABLE_NAME,
-    p.rows AS cantidad_filas
-FROM INFORMATION_SCHEMA.TABLES t
-JOIN sys.tables st ON t.TABLE_NAME = st.name
-JOIN sys.partitions p ON st.object_id = p.object_id AND p.index_id IN (0,1)
-WHERE t.TABLE_TYPE = 'BASE TABLE'
-ORDER BY p.rows DESC
+- ¿Cuántas tablas tiene la base de datos aproximadamente? ______
 
--- 2. Ver columnas de las tablas más grandes
-SELECT TOP 200
-    c.TABLE_SCHEMA,
-    c.TABLE_NAME,
-    c.COLUMN_NAME,
-    c.DATA_TYPE,
-    c.CHARACTER_MAXIMUM_LENGTH,
-    c.IS_NULLABLE
-FROM INFORMATION_SCHEMA.COLUMNS c
-JOIN (
-    -- solo las tablas con más de 1000 filas
-    SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
-) t ON c.TABLE_NAME = t.TABLE_NAME
-ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
+- ¿Hay un schema (namespace) específico para los datos operativos?
+  - ¿O todo está en el schema por defecto (`dbo` en SQL Server, `public` en Postgres)?
+  - Lista de schemas disponibles: _______________
 
--- 3. Ver foreign keys (para entender relaciones)
-SELECT 
-    fk.name AS fk_name,
-    tp.name AS tabla_padre,
-    cp.name AS columna_padre,
-    tr.name AS tabla_referenciada,
-    cr.name AS columna_referenciada
-FROM sys.foreign_keys fk
-JOIN sys.tables tp ON fk.parent_object_id = tp.object_id
-JOIN sys.tables tr ON fk.referenced_object_id = tr.object_id
-JOIN sys.foreign_key_columns fkc ON fk.object_id = fkc.constraint_object_id
-JOIN sys.columns cp ON fkc.parent_object_id = cp.object_id AND fkc.parent_column_id = cp.column_id
-JOIN sys.columns cr ON fkc.referenced_object_id = cr.object_id AND fkc.referenced_column_id = cr.column_id
-ORDER BY tp.name
+- ¿Existe documentación del modelo de datos? (ERD, Word, PDF, cualquier cosa)
+  - [ ] Sí → adjuntar al responder este documento
+  - [ ] No
 
--- 4. Ver stored procedures existentes
-SELECT ROUTINE_SCHEMA, ROUTINE_NAME, ROUTINE_TYPE
-FROM INFORMATION_SCHEMA.ROUTINES
-WHERE ROUTINE_TYPE = 'PROCEDURE'
-ORDER BY ROUTINE_SCHEMA, ROUTINE_NAME
+- ¿Existe un diccionario de datos? (descripción de cada tabla y columna)
+  - [ ] Sí → adjuntar
+  - [ ] No
 
--- 5. Ver vistas
-SELECT TABLE_SCHEMA, TABLE_NAME
-FROM INFORMATION_SCHEMA.VIEWS
-ORDER BY TABLE_SCHEMA, TABLE_NAME
+### 2.2 Tablas principales — necesitamos nombre EXACTO
+
+Completar con los nombres reales de las tablas en su base:
+
+| Entidad conceptual | Nombre real de la tabla | Schema |
+|---|---|---|
+| Cajas físicas (elementos) | | |
+| Legajos físicos | | |
+| Posiciones / ubicaciones en depósito | | |
+| Módulos / estanterías | | |
+| Clientes | | |
+| Pedidos / requerimientos / órdenes | | |
+| Remitos | | |
+| Movimientos / auditoría | | |
+| Retiros | | |
+| Usuarios / operarios del sistema | | |
+| Hoja de ruta / despacho | | |
+| Trámites administrativos / búsqueda | | |
+
+Si una entidad no tiene tabla propia (está embebida en otra), indicarlo.
+
+### 2.3 Columnas críticas — por cada tabla relevante
+
+Para **cada tabla** de la lista anterior, necesitamos:
+
+- Nombre exacto de la **clave primaria** y su tipo (INT, BIGINT, VARCHAR, GUID/UUID, autoincremental o no)
+- Nombre de la columna que guarda el **código de caja/legajo** (ej: `cod_elemento`, `codigo`, `barcode`)
+- Nombre de la columna de **estado** y los **valores posibles** exactos (ej: 'EN_GUARDA', 'EN_CONSULTA', o números: 1, 2, 3)
+- Nombre de las **claves foráneas** principales (FK a cliente, FK a posición, etc.)
+- ¿Hay columna `deleted_at` o `activo` para soft-delete?
+- ¿Hay columnas `created_at` / `updated_at`?
+
+Ejemplo del formato que esperamos:
+
+```
+Tabla: TB_ELEMENTOS
+  PK: ID_ELEMENTO (BIGINT, autoincremental)
+  Código barcode: COD_BARRAS (VARCHAR 12)
+  Estado: EST_ELEMENTO (CHAR 2) → valores: 'EG'=en guarda, 'EC'=en consulta, 'ET'=en tránsito, 'CL'=en cliente, 'BA'=baja
+  FK cliente: ID_CLIENTE (INT)
+  FK posición: ID_POSICION (INT, nullable)
+  Soft delete: ACTIVO (BIT) → 0=borrado, 1=activo
+  Timestamps: FEC_ALTA (DATETIME), FEC_MOD (DATETIME)
 ```
 
-> Si la base es PostgreSQL o MySQL, avisar y damos los equivalentes.
+### 2.4 Prefijos de códigos de caja y legajo
+
+Esta es una de las preguntas más críticas. Los prefijos determinan la validación de todos los UCs.
+
+- ¿Los códigos de caja son siempre de 12 dígitos? ______
+- ¿Los códigos de legajo son siempre de 12 dígitos? ______
+- ¿Cómo se forma el código completo de 12 dígitos? (describir la estructura)
+  
+  Ejemplo de lo que suponemos actualmente:
+  ```
+  Código de 7 dígitos ingresado → prefijo "11000" + 7 dígitos = 12 dígitos total
+  Código de 6 dígitos ingresado → prefijo "110000" + 6 dígitos = 12 dígitos total
+  Código de 4 dígitos viejo    → "13" + código_cliente (2 dígitos) + 4 dígitos = 12 dígitos total
+  ```
+  ¿Esto es correcto? ¿Hay más casos? ¿El prefijo varía según el cliente?
+
+- ¿Cómo se distingue un código de caja de uno de legajo? (¿por los primeros dígitos? ¿por campo tipo en la tabla?)
+
+- ¿Los clientes tienen un código de 2 dígitos que forma parte del prefijo? ______
+
+- Ejemplos reales de códigos válidos (si no son datos sensibles):
+  - Caja: ____________
+  - Legajo: ____________
+
+### 2.5 Estados y transiciones
+
+Para la tabla de elementos/cajas, necesitamos el mapa completo de estados:
+
+- Listado de **todos los estados posibles** con su significado:
+  ```
+  Estado en DB → Significado de negocio
+  __________ → en guarda (en el depósito de BASA, sin movimiento)
+  __________ → en consulta (pedido activo)
+  __________ → en tránsito (en camino al cliente)
+  __________ → en cliente (en las instalaciones del cliente)
+  __________ → baja (dado de baja, no se usa más)
+  (agregar los que falten)
+  ```
+
+- ¿Hay estados intermedios que nosotros no modelamos?
+- ¿Las transiciones de estado están controladas por la app, por triggers, o por stored procedures?
+
+### 2.6 Stored procedures
+
+- ¿El ABM usa stored procedures para las operaciones principales?
+  - [ ] No, escribe directo a las tablas
+  - [ ] Sí → listar los más importantes:
+
+| Nombre del SP | Para qué sirve | Parámetros de entrada | Parámetros de salida |
+|---|---|---|---|
+| | | | |
+| | | | |
+
+- ¿Hay stored procedures que **debemos llamar obligatoriamente** para mantener la consistencia?
+  (ej: un SP que actualiza contadores, genera auditoría, notifica a otro sistema)
+
+- ¿Hay **triggers** en las tablas principales que disparan lógica automática?
+  Lista de triggers por tabla: _______________
+
+### 2.7 Vistas
+
+- ¿Hay vistas (VIEWS) que el ABM o los reportes usan para leer datos?
+  - Lista de vistas con descripción de para qué se usan:
+
+| Nombre de la vista | Descripción | ¿El ABM la usa? |
+|---|---|---|
+| | | |
 
 ---
 
-## 9. Qué hacemos con el schema cuando lo tengamos
+## BLOQUE 3 — El ABM existente
 
-1. **Mapeamos** cada tabla relevante a los 6 UCs
-2. **Adaptamos** los modelos SQLAlchemy en `app/models/` para usar los nombres reales de tablas y columnas
-3. **Actualizamos** el `.env` con la cadena de conexión real
-4. **Descartamos** el schema SQL que propusimos (sección 2 del doc anterior) — usamos el de ellos
-5. **Identificamos** qué tablas nuevas necesitamos agregar (si alguna) y lo coordinamos con el DBA de BASA
+### 3.1 Tecnología
+
+- ¿En qué lenguaje/framework está construido el ABM?
+  - [ ] VB.NET / C# / .NET Framework / .NET Core → ¿versión?
+  - [ ] Delphi / Pascal
+  - [ ] Java
+  - [ ] PHP
+  - [ ] Node.js / web moderno
+  - [ ] Otro: _______________
+
+- ¿Es una aplicación de escritorio (Windows Forms, WPF) o web?
+- ¿Dónde corre el ABM? (en los equipos de cada operario, en un servidor compartido, en la nube)
+
+### 3.2 Acceso al código fuente
+
+- ¿Podemos ver el código fuente del ABM?
+  - [ ] Sí, tienen repositorio Git/SVN → ¿URL?
+  - [ ] Sí, pero no está en un repositorio → ¿pueden mandarnos un ZIP?
+  - [ ] No, el código es de un proveedor externo
+
+- Si el ABM es de un proveedor externo: ¿tienen contacto técnico con ese proveedor al que podamos consultar?
+
+- ¿Tienen el connection string del ABM? (para ver exactamente cómo se conecta)
+  ```
+  Ejemplo: Server=192.168.1.10;Database=BASA_PROD;User Id=app_user;Password=xxx;
+  ```
+  Connection string real (si pueden compartirlo): _______________
+
+### 3.3 Funcionalidades del ABM — qué hace exactamente
+
+Para cada funcionalidad, marcar si existe y describir cómo está implementada:
+
+**Gestión de clientes:**
+- [ ] Alta de cliente → ¿campos obligatorios? _______________
+- [ ] Modificación de cliente
+- [ ] Baja de cliente → ¿es soft delete o físico?
+- [ ] Búsqueda/filtros de clientes
+
+**Gestión de elementos (cajas/legajos):**
+- [ ] Alta individual de caja/legajo → ¿cómo se genera el código? ¿automático o manual?
+- [ ] Carga masiva de elementos → ¿por CSV, Excel, escáner, otro?
+- [ ] Modificación de datos de un elemento
+- [ ] Baja de elemento
+- [ ] Búsqueda por código, por cliente, por estado
+
+**Gestión de posiciones/depósito:**
+- [ ] Alta de módulo/estantería
+- [ ] Alta de posición individual
+- [ ] Vista del mapa del depósito
+- [ ] ¿El ABM muestra qué posiciones están ocupadas?
+
+**¿Hay funcionalidades del ABM que SOLAPAN con los UC que estamos implementando?**
+
+Por ejemplo:
+- ¿El ABM ya tiene un módulo de "pedidos" o "retiros"?
+- ¿El ABM ya registra movimientos de cajas?
+- ¿El ABM ya calcula fletes?
+
+Si hay solapamiento, necesitamos decidir si:
+a) Nuestro sistema reemplaza esa funcionalidad del ABM
+b) Convivimos con el ABM (duplicidad de datos, hay que sincronizar)
+c) Llamamos al ABM como servicio (si expone API)
 
 ---
 
-## Próximos pasos inmediatos
+## BLOQUE 4 — Lógica de negocio crítica
 
-- [ ] **BASA:** Organizar reunión técnica con el DBA o quien administra la base
-- [ ] **BASA:** Preparar acceso de solo lectura a ambiente dev antes de la reunión
-- [ ] **BASA:** Tener disponible el código del ABM para revisar en la reunión
-- [ ] **Nosotros:** Llevar este documento a la reunión como guía
-- [ ] **Nosotros:** Conectar DBeaver / TablePlus en vivo durante la reunión para explorar el schema juntos
+### 4.1 Cálculo de fletes
+
+Actualmente implementamos: `fletes = ceil(cantidad_cajas / 20)`
+
+- ¿Esto es correcto? [ ] Sí [ ] No
+- Si no, ¿cuál es la fórmula real?
+- ¿Varía según el cliente, tipo de caja, distancia, u otro factor?
+- ¿El precio del flete también se calcula en el sistema o es fijo por contrato con cada cliente?
+
+### 4.2 Splitting automático de legajos
+
+Cuando un legajo no se encuentra en el depósito, creamos un "requerimiento hijo" de tipo Búsqueda.
+
+- ¿Este proceso existe actualmente? [ ] Sí (manual) [ ] Sí (automático) [ ] No existe
+- ¿Cómo se resuelve hoy cuando falta un legajo?
+- ¿El requerimiento hijo debe tener algún campo específico que lo vincule al padre?
+
+### 4.3 Tipos de requerimiento
+
+Tenemos modelados los siguientes tipos (números):
+
+| Número | Descripción |
+|---|---|
+| 1 | UC1 — Ubicación en planta |
+| 2 | UC2 — Consulta de caja |
+| 3 | UC3 — Consulta de legajos |
+| 5 | UC4 — Retiro |
+| 16 | UC5 — Búsqueda/investigación |
+| 8 | Destino de transformación — consulta digital |
+
+- ¿Estos tipos/números coinciden con lo que tienen en la base?
+- ¿Hay más tipos que no estamos contemplando?
+- Tabla real de tipos de requerimiento (si existe):
+
+| Código en DB | Descripción en BASA |
+|---|---|
+| | |
+
+### 4.4 SLA y tiempos
+
+- Consulta de caja: ¿cuántas horas hábiles tiene el operario para despacharla? (asumimos 48hs) ______
+- Consulta de legajo: ¿cuántas horas? ______
+- Retiro: ¿cuántas horas para que pasen a buscarlas? ______
+- Búsqueda/investigación: ¿hay SLA? ______
+
+### 4.5 Autorización de supervisor
+
+Cuando una caja tiene legajos individuales catalogados, el sistema pide autorización de supervisor antes de despachar.
+
+- ¿Cómo se sabe que una caja tiene "elementos individuales catalogados"? (¿campo en la tabla? ¿relación con otra tabla?)
+- ¿Quién puede autorizar? (¿cualquier jefe? ¿un rol específico?)
+- ¿Esta autorización se registra en alguna tabla?
+
+### 4.6 Reglas de los códigos — confirmación
+
+Marcar si cada regla es correcta:
+
+| Regla | ¿Correcto? | Corrección si no |
+|---|---|---|
+| Código de 7 dígitos → prefijo "11000" para caja | ☐ Sí ☐ No | |
+| Código de 6 dígitos → prefijo "110000" para caja | ☐ Sí ☐ No | |
+| Código de 7 dígitos → prefijo "12000" para legajo | ☐ Sí ☐ No | |
+| Código de 6 dígitos → prefijo "120000" para legajo | ☐ Sí ☐ No | |
+| Código antiguo de 4 dígitos → "13" + cód_cliente + 4 dígitos | ☐ Sí ☐ No | |
+| Código de posición tiene 14 dígitos | ☐ Sí ☐ No | |
+| Toda caja ocupa exactamente UNA posición (1 a 1) | ☐ Sí ☐ No | |
+
+### 4.7 Retiro — tipos
+
+Tenemos modelados dos tipos de retiro:
+- **Por cantidad:** el cliente declara N cajas, retiramos lo que llega y conciliamos
+- **Por referencia:** el cliente declara los códigos exactos que va a entregar
+
+- ¿Esto es correcto?
+- ¿Hay más tipos de retiro?
+- ¿Cuando hay diferencia entre lo declarado y lo recibido, quién decide cómo resolverla?
+
+---
+
+## BLOQUE 5 — Integración con otros sistemas
+
+### 5.1 Sistema Aconcagua (despacho/transporte)
+
+- ¿Qué es Aconcagua exactamente? (software de terceros, sistema propio, empresa de transporte)
+- ¿Aconcagua expone API? [ ] Sí, REST [ ] Sí, SOAP/WSDL [ ] No, es manual [ ] No sé
+- ¿Qué datos necesita Aconcagua para registrar un despacho?
+  - Número de remito, fecha, cliente, cantidad de bultos, dirección, otros
+- ¿Actualmente la comunicación con Aconcagua es manual (alguien carga en el sistema de ellos)?
+- Si hay integración automática: ¿quién la implementó? ¿está documentada?
+
+### 5.2 Sistema de email
+
+- ¿Usan servidor SMTP propio de BASA? [ ] Sí [ ] No (usan Gmail/Outlook/otro)
+- Servidor SMTP: _______________
+- Puerto: ______  TLS/SSL: [ ] Sí [ ] No
+- Email del remitente para notificaciones: _______________
+- ¿Hay templates de email para las notificaciones a clientes? (si los tienen, compartirlos)
+- ¿Los clientes reciben email solo para retiros, o también para otros UCs?
+
+### 5.3 Sistema de impresión de remitos
+
+- ¿Los remitos actuales se imprimen?
+- ¿Desde qué sistema? (el ABM, Word, Crystal Reports, otro)
+- ¿Tenemos que generar el PDF nosotros o alcanza con mostrar los datos en pantalla?
+- ¿Hay un formato/template específico del remito que debamos respetar? (si existe, compartir un ejemplo)
+- ¿Los remitos tienen número correlativo? ¿Quién lo genera?
+
+### 5.4 Lectores de código de barras / escáneres
+
+- ¿Qué tipo de códigos de barra usan? (Code 128, QR, EAN, otro)
+- ¿Los operarios tienen pistolas/escáneres físicos conectados a la PC o usan cámara del celular?
+- ¿Los escáneres actúan como teclado (HID) o tienen software propio con API?
+- La interfaz que estamos construyendo tiene inputs de texto que reciben el escaneo — ¿eso es compatible con los escáneres que usan?
+
+---
+
+## BLOQUE 6 — UC6 — Agente IA para jefes
+
+### 6.1 Casos de uso concretos
+
+¿Qué preguntas hacen los jefes actualmente? (cuantos más ejemplos, mejor el agente)
+
+Ejemplos del tipo de pregunta que esperamos:
+- "¿Cuántas cajas entregamos esta semana?"
+- "¿Dónde está la caja del cliente X con código Y?"
+- "¿Cuántos pedidos tienen más de 48hs sin despachar?"
+- "¿Cuántos fletes generamos en mayo?"
+
+Preguntas reales que los jefes necesitan responder hoy: _______________
+
+### 6.2 Aprobación del costo del LLM
+
+El agente IA usa la API de Anthropic (Claude). El costo aproximado es:
+
+| Uso estimado | Costo mensual aprox. |
+|---|---|
+| 100 consultas/día (~15 palabras cada una) | ~USD 5–10/mes |
+| 500 consultas/día | ~USD 25–50/mes |
+
+- ¿BASA aprueba este costo? [ ] Sí [ ] No [ ] Consultar
+- ¿Prefieren una alternativa open-source (Llama, Mistral) corriendo en sus servidores? (requiere GPU)
+
+### 6.3 NotebookLM para manual de procedimientos
+
+Podemos conectar el agente a un NotebookLM con el manual de BASA para que responda preguntas sobre procedimientos.
+
+- ¿Tienen un manual de procedimientos o reglamento interno escrito? [ ] Sí [ ] No
+- ¿Tienen cuenta de Google Workspace corporativa? (necesario para NotebookLM empresarial)
+- ¿Les interesa esta funcionalidad? [ ] Sí [ ] No, solo datos de la DB
+
+---
+
+## BLOQUE 7 — Seguridad y producción
+
+### 7.1 Dónde corre el sistema en producción
+
+- ¿Van a correr el sistema nuevo en los propios servidores de BASA o en la nube?
+- ¿Tienen servidor Linux disponible con Docker instalado?
+- ¿O prefieren que levantemos el sistema en la nube (AWS/GCP/Azure/DigitalOcean)?
+- ¿Necesitan HTTPS con dominio propio? ¿Tienen dominio? (ej: sistema.basa.com.ar)
+
+### 7.2 Usuarios del sistema
+
+- ¿Cuántos operarios van a usar el sistema simultáneamente? (para dimensionar)
+- ¿Cuántos jefes van a usar UC6?
+- ¿Quién va a administrar usuarios? (crear/desactivar cuentas)
+- ¿Se integra con Active Directory / LDAP de la empresa para el login?
+  - [ ] Sí → darnos datos del servidor LDAP/AD
+  - [ ] No, usuarios independientes en nuestra base
+
+### 7.3 Datos sensibles
+
+- ¿Los legajos contienen datos personales sensibles (DNI, CUIL, datos médicos, datos judiciales)?
+- ¿Están bajo alguna regulación de protección de datos? (Ley 25.326, GDPR si tienen clientes en Europa)
+- ¿Los datos de los clientes son confidenciales entre clientes? (que el cliente A no pueda ver los elementos del cliente B)
+
+---
+
+## RESUMEN EJECUTIVO — Lo mínimo indispensable para arrancar
+
+Si no pueden responder todo ahora, priorizar esto:
+
+### Semana 1 — Acceso
+
+1. **Credencial de solo lectura** al ambiente de dev (o a producción)
+2. **Nombre de la tabla** donde están las cajas y sus columnas principales (especialmente el campo de código y el campo de estado)
+3. **Un ejemplo** de código de caja real y uno de legajo real
+
+### Semana 2 — Entender el modelo
+
+4. **Schema completo** exportado desde Management Studio o equivalente
+5. **Código del ABM** o al menos los archivos de acceso a datos (DAL/repositorios)
+6. Listado de **stored procedures** que tocan las tablas principales
+
+### Semana 3 — Integraciones
+
+7. Datos del **servidor SMTP**
+8. Clarificación sobre **Aconcagua** (API o proceso manual)
+9. Confirmación de las **reglas de negocio** (fletes, prefijos, SLA)
+
+---
+
+*Contacto para responder este documento:* _______________  
+*Fecha de reunión técnica disponible:* _______________
